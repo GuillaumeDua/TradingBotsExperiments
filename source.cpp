@@ -106,8 +106,6 @@ namespace trading_bots::input {
     requires (max_duration not_eq 0)
     struct rsi {
 
-        // todo : refactor this, based on CloseLast, not (Open / CloseLast) rate
-
         void update(const record_type & input) {
             cache.push_front(input);
             if (cache.size() > max_duration)
@@ -225,6 +223,16 @@ namespace trading_bots::automata {
         requires { typename T::components_type; } and
         requires (T& value, T::components_type && c) { value.process(fwd(c)); }
     ;
+    struct long_term : base {
+        using components_type = std::tuple<>;
+        void process(components_type && components) {
+            static auto once_dummy = [this](){
+                buy_up_to(current_amount_USD);
+                return true;
+            }();
+        }
+    };
+    static_assert(automata_type<long_term>);
 
     template <std::size_t duration>
     requires (duration not_eq 0)
@@ -378,6 +386,8 @@ auto main() -> int {
     try {
         using namespace trading_bots;
         run_for_datas<
+            // long-term (do nothing but wait)
+            automata::long_term,
             // RSI_proportional
             automata::RSI_proportional<4>,
             automata::RSI_proportional<6>,

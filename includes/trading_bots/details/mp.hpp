@@ -5,12 +5,14 @@
 namespace trading_bots::details::mp {
     // todo : universal template parameter, to merge ttps/nttps
 
-    template <typename T, typename... Ts>
+    template <typename... Ts>
     struct are_unique_ttps {
-        constexpr static bool value = (not(std::is_same_v<T, Ts> or ...)) and are_unique_ttps<Ts...>::value;
+        constexpr static bool value = []<typename first, typename ... rest>(){
+            return (not(std::is_same_v<first, rest> or ...)) and are_unique_ttps<rest...>::value;
+        }.template operator()<Ts...>();
     };
-    template <typename T>
-    struct are_unique_ttps<T> {
+    template <>
+    struct are_unique_ttps<> {
         constexpr static bool value = true;
     };
     template <typename... Ts>
