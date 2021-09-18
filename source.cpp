@@ -371,9 +371,9 @@ void run_for_datas(const std::string & path, const float initial_amount) {
 
 auto main() -> int {
     
-    const std::string path_ETH_august_2021 = "./datas/HistoricalData_1631403583208.csv";
-    const std::string path_ETH_2021 = "./datas/HistoricalData_1631403618344.csv";
-    const std::string path_ETH_all = "./datas/HistoricalData_1631482231024.csv";
+    const std::string path_ETH_august_2021 = "./datas/ETH/HistoricalData_1631403583208.csv";
+    const std::string path_ETH_2021 = "./datas/ETH/HistoricalData_1631403618344.csv";
+    const std::string path_ETH_all = "./datas/ETH/HistoricalData_1631482231024.csv";
 
     try {
         using namespace trading_bots;
