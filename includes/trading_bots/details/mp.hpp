@@ -50,6 +50,9 @@ namespace trading_bots::details::mp {
     };
     template <typename T>
     constexpr bool has_unique_nttps_v = unique_nttps<T>::value;
+
+    template <typename ...>
+    struct pack_type{};
 }
 namespace trading_bots::details {
     template <typename T>

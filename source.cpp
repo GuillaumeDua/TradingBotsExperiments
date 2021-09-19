@@ -18,15 +18,11 @@
 
 // todo :
 //
-//  check if market trend is up or down before buying/selling
-//  
-//  automata that does nothing (no sell, buy, just update)
+//  stats : how many buy/sell orders per automata ?
 //
 //  auto-update amounts using market datas (stocks * value) instead of dispatching updates
 //
-//  better datas (smaller timegaps)
-//
-//  Warning : open/close not contiguous -> small but noticable margin
+//  datas : better datas (smaller timegaps) : 1d => 4h, 1h, 15m, 1m
 
 #define fwd(...) static_cast<decltype(__VA_ARGS__) &&>(__VA_ARGS__)
 
@@ -304,6 +300,45 @@ namespace trading_bots::automata {
             }
         };
 
+        template <float trend_fluctuation_rate>
+        struct proportional_with_trends : public base {
+
+            using components_type = std::tuple<
+                trading_bots::input::rsi<>,
+                trading_bots::input::trend<trend_fluctuation_rate>
+            >;
+
+            proportional_with_trends(amount_type initial_amount)
+            : base{ initial_amount }
+            {}
+
+            void process(components_type && components) {
+
+                auto & [rsi, trend] = components;
+
+                // strategy
+                const auto rsi_value = rsi.value_for_duration(duration);
+                if (not rsi_value or    // rsi   : not enough records to process
+                    not trend.value or  // trend : not enough records to process
+                    *(trend.value) == input::trend_value_type::stable // no observal trend
+                ) return;
+                const auto trend_value = *(trend.value);
+
+                std::cout
+                    << gcl::cx::type_name_v<std::remove_cvref_t<decltype(*this)>> << '\n'
+                    << "\trsi = " << *rsi_value << '\n'
+                ;
+
+                if (trend_value == input::trend_value_type::up and
+                    *rsi_value < 50)
+                    buy_up_to(current_amount_USD * (1 - (*rsi_value / 50)));
+                if (trend_value == input::trend_value_type::down and
+                    *rsi_value > 50)
+                    sell_up_to(investement.to_USDT() * ((*rsi_value / 50) - 1));
+            }
+        };
+
+
         template <investment_strategy strategy>
         struct thresholds : public base {
 
@@ -335,13 +370,13 @@ namespace trading_bots::automata {
             }
         };
 
-        template <investment_strategy strategy, float trend_fluctuation_rate>
+        template <investment_strategy strategy, float trend_fluctuation>
         requires (duration not_eq 0)
         struct thresholds_and_trends : public base {
 
             using components_type = std::tuple<
                 trading_bots::input::rsi<>,
-                trading_bots::input::trend<trend_fluctuation_rate>
+                trading_bots::input::trend<trend_fluctuation>
             >;
 
             thresholds_and_trends(amount_type initial_amount)
@@ -367,7 +402,7 @@ namespace trading_bots::automata {
                 if (trend_value == input::trend_value_type::up and
                     *rsi_value < strategy.thresholds.buy)
                     buy_up_to(current_amount_USD * strategy.investment);
-                if (input::trend_value_type::down and
+                if (trend_value == input::trend_value_type::down and
                     *rsi_value > strategy.thresholds.sell)
                     sell_up_to(investement.to_USDT() * strategy.investment);
             }
@@ -450,14 +485,40 @@ void run_for_datas(const std::string & path, const float initial_amount) {
         );
 }
 
+// --- tests
+
+namespace test {
+    template <std::size_t rsi_value>
+    using RSI_types = trading_bots::details::mp::pack_type<
+        typename trading_bots::automata::RSI_of<rsi_value>::proportional,
+        // thresholds
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds<trading_bots::investment_strategy{ .thresholds = { .buy = 30, .sell = 70 }, .investment = 0.5f  }>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds<trading_bots::investment_strategy{ .thresholds = { .buy = 30, .sell = 70 }, .investment = 0.25f }>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds<trading_bots::investment_strategy{ .thresholds = { .buy = 40, .sell = 60 }, .investment = 0.5f  }>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds<trading_bots::investment_strategy{ .thresholds = { .buy = 40, .sell = 60 }, .investment = 0.25f }>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds<trading_bots::investment_strategy{ .thresholds = { .buy = 45, .sell = 55 }, .investment = 0.5f  }>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds<trading_bots::investment_strategy{ .thresholds = { .buy = 45, .sell = 55 }, .investment = 0.25f }>,
+        // thresholds_and_trends
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds_and_trends<trading_bots::investment_strategy{ .thresholds = { .buy = 30, .sell = 70 }, .investment = 0.5f  }, 2.f>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds_and_trends<trading_bots::investment_strategy{ .thresholds = { .buy = 30, .sell = 70 }, .investment = 0.25f }, 2.f>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds_and_trends<trading_bots::investment_strategy{ .thresholds = { .buy = 40, .sell = 60 }, .investment = 0.5f  }, 2.f>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds_and_trends<trading_bots::investment_strategy{ .thresholds = { .buy = 40, .sell = 60 }, .investment = 0.25f }, 2.f>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds_and_trends<trading_bots::investment_strategy{ .thresholds = { .buy = 45, .sell = 55 }, .investment = 0.5f  }, 2.f>,
+        typename trading_bots::automata::RSI_of<rsi_value>::thresholds_and_trends<trading_bots::investment_strategy{ .thresholds = { .buy = 45, .sell = 55 }, .investment = 0.25f }, 2.f>
+    >;
+}
+
 auto main() -> int {
     
     const std::string path_ETH_august_2021 = "./datas/ETH/HistoricalData_1631403583208.csv";
     const std::string path_ETH_2021 = "./datas/ETH/HistoricalData_1631403618344.csv";
     const std::string path_ETH_all = "./datas/ETH/HistoricalData_1631482231024.csv";
 
+    using namespace trading_bots;
+
+    using RSI_to_test_t = std::integer_sequence<std::size_t, 1, 4, 6, 7, 10, 14>;
+
     try {
-        using namespace trading_bots;
         run_for_datas<
             // long-term (do nothing but wait)
             automata::long_term,
