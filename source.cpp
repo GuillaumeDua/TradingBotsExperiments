@@ -268,121 +268,120 @@ namespace trading_bots::automata {
             }();
         }
     };
-    static_assert(automata_type<long_term>);
 
     template <std::size_t duration>
+    requires (duration not_eq 0)
     struct RSI_of { // struct-as-namespace
-        
+
+        struct proportional : public base {
+
+            using components_type = std::tuple<
+                trading_bots::input::rsi<>
+            >;
+
+            proportional(amount_type initial_amount)
+            : base{ initial_amount }
+            {}
+
+            void process(components_type && components) {
+
+                auto & [rsi] = components;
+
+                // strategy
+                const auto rsi_value = rsi.value_for_duration(duration);
+                if (not rsi_value)
+                    return; // not enough records to process
+                
+                std::cout
+                    << gcl::cx::type_name_v<std::remove_cvref_t<decltype(*this)>> << '\n'
+                    << "\trsi = " << *rsi_value << '\n'
+                ;
+
+                if (*rsi_value < 50)
+                    buy_up_to(current_amount_USD * (1 - (*rsi_value / 50)));
+                if (*rsi_value > 50)
+                    sell_up_to(investement.to_USDT() * ((*rsi_value / 50) - 1));
+            }
+        };
+
+        template <investment_strategy strategy>
+        struct thresholds : public base {
+
+            using components_type = std::tuple<
+                trading_bots::input::rsi<>
+            >;
+
+            thresholds(amount_type initial_amount)
+            : base{ initial_amount }
+            {}
+
+            void process(components_type && components) {
+
+                auto & [rsi] = components;
+
+                // strategy
+                const auto rsi_value = rsi.value_for_duration(duration);
+                if (not rsi_value)
+                    return; // not enough records to process
+                
+                std::cout
+                    << gcl::cx::type_name_v<std::remove_cvref_t<decltype(*this)>> << '\n'
+                    << "\trsi = " << *rsi_value << '\n'
+                ;
+                if (*rsi_value < strategy.thresholds.buy)
+                    buy_up_to(current_amount_USD * strategy.investment);
+                if (*rsi_value > strategy.thresholds.sell)
+                    sell_up_to(investement.to_USDT() * strategy.investment);
+            }
+        };
+
+        template <investment_strategy strategy, float trend_fluctuation_rate>
+        requires (duration not_eq 0)
+        struct thresholds_and_trends : public base {
+
+            using components_type = std::tuple<
+                trading_bots::input::rsi<>,
+                trading_bots::input::trend<trend_fluctuation_rate>
+            >;
+
+            thresholds_and_trends(amount_type initial_amount)
+            : base{ initial_amount }
+            {}
+
+            void process(components_type && components) {
+
+                auto & [rsi, trend] = components;
+
+                // strategy
+                const auto rsi_value = rsi.value_for_duration(duration);
+                if (not rsi_value or    // rsi   : not enough records to process
+                    not trend.value or  // trend : not enough records to process
+                    *(trend.value) == input::trend_value_type::stable // no observal trend
+                ) return;
+                const auto trend_value = *(trend.value);
+                
+                std::cout
+                    << gcl::cx::type_name_v<std::remove_cvref_t<decltype(*this)>> << '\n'
+                    << "\trsi = " << *rsi_value << '\n'
+                ;
+                if (trend_value == input::trend_value_type::up and
+                    *rsi_value < strategy.thresholds.buy)
+                    buy_up_to(current_amount_USD * strategy.investment);
+                if (input::trend_value_type::down and
+                    *rsi_value > strategy.thresholds.sell)
+                    sell_up_to(investement.to_USDT() * strategy.investment);
+            }
+        };
     };
 
-    template <std::size_t duration>
-    requires (duration not_eq 0)
-    struct RSI_proportional : public base {
-
-        using components_type = std::tuple<
-            trading_bots::input::rsi<>
-        >;
-
-        RSI_proportional(amount_type initial_amount)
-        : base{ initial_amount }
-        {}
-
-        void process(components_type && components) {
-
-            auto & [rsi] = components;
-
-            // strategy
-            const auto rsi_value = rsi.value_for_duration(duration);
-            if (not rsi_value)
-                return; // not enough records to process
-            
-            std::cout
-                << gcl::cx::type_name_v<std::remove_cvref_t<decltype(*this)>> << '\n'
-                << "\trsi = " << *rsi_value << '\n'
-            ;
-
-            if (*rsi_value < 50)
-                buy_up_to(current_amount_USD * (1 - (*rsi_value / 50)));
-            if (*rsi_value > 50)
-                sell_up_to(investement.to_USDT() * ((*rsi_value / 50) - 1));
-        }
-    };
-    static_assert(automata_type<RSI_proportional<1>>);
-
-    template <std::size_t duration, investment_strategy strategy>
-    requires (duration not_eq 0)
-    struct RSI_thresholds : public base {
-
-        using components_type = std::tuple<
-            trading_bots::input::rsi<>
-        >;
-
-        RSI_thresholds(amount_type initial_amount)
-        : base{ initial_amount }
-        {}
-
-        void process(components_type && components) {
-
-            auto & [rsi] = components;
-
-            // strategy
-            const auto rsi_value = rsi.value_for_duration(duration);
-            if (not rsi_value)
-                return; // not enough records to process
-            
-            std::cout
-                << gcl::cx::type_name_v<std::remove_cvref_t<decltype(*this)>> << '\n'
-                << "\trsi = " << *rsi_value << '\n'
-            ;
-            if (*rsi_value < strategy.thresholds.buy)
-                buy_up_to(current_amount_USD * strategy.investment);
-            if (*rsi_value > strategy.thresholds.sell)
-                sell_up_to(investement.to_USDT() * strategy.investment);
-        }
-    };
+    // --- contract checks
+    static_assert(automata_type<long_term>);
+    static_assert(automata_type<RSI_of<1>::proportional>);
     static_assert(automata_type<
-        RSI_thresholds<1, investment_strategy{ threshold_type{ 30, 70 }, 0.5f}>
+        RSI_of<1>::thresholds<investment_strategy{ threshold_type{ 30, 70 }, 0.5f}>
     >);
-
-    template <std::size_t duration, investment_strategy strategy>
-    requires (duration not_eq 0)
-    struct RSI_thresholds_with_trends : public base {
-
-        using components_type = std::tuple<
-            trading_bots::input::rsi<>,
-            trading_bots::input::trend<1.f>
-        >;
-
-        RSI_thresholds_with_trends(amount_type initial_amount)
-        : base{ initial_amount }
-        {}
-
-        void process(components_type && components) {
-
-            auto & [rsi, trend] = components;
-
-            // strategy
-            const auto rsi_value = rsi.value_for_duration(duration);
-            if (not rsi_value or    // rsi   : not enough records to process
-                not trend.value or  // trend : not enough records to process
-                *(trend.value) == input::trend_value_type::stable // no observal trend
-            ) return;
-            const auto trend_value = *(trend.value);
-            
-            std::cout
-                << gcl::cx::type_name_v<std::remove_cvref_t<decltype(*this)>> << '\n'
-                << "\trsi = " << *rsi_value << '\n'
-            ;
-            if (trend_value == input::trend_value_type::up and
-                *rsi_value < strategy.thresholds.buy)
-                buy_up_to(current_amount_USD * strategy.investment);
-            if (input::trend_value_type::down and
-                *rsi_value > strategy.thresholds.sell)
-                sell_up_to(investement.to_USDT() * strategy.investment);
-        }
-    };
     static_assert(automata_type<
-        RSI_thresholds_with_trends<1, investment_strategy{ threshold_type{ 30, 70 }, 0.5f}>
+        RSI_of<1>::thresholds_and_trends<investment_strategy{ threshold_type{ 30, 70 }, 0.5f}, 0.f>
     >);
 }
 
@@ -463,18 +462,18 @@ auto main() -> int {
             // long-term (do nothing but wait)
             automata::long_term,
             // RSI_proportional
-            automata::RSI_proportional<4>,
-            automata::RSI_proportional<6>,
-            automata::RSI_proportional<7>,
-            automata::RSI_proportional<14>,
+            automata::RSI_of<4>::proportional,
+            automata::RSI_of<6>::proportional,
+            automata::RSI_of<7>::proportional,
+            automata::RSI_of<14>::proportional,
             // RSI_thresholds
             // 14
-            automata::RSI_thresholds<14, investment_strategy{ .thresholds = { .buy = 30, .sell = 70 }, .investment = 0.5f  }>,
-            automata::RSI_thresholds<14, investment_strategy{ .thresholds = { .buy = 30, .sell = 70 }, .investment = 0.25f }>,
-            automata::RSI_thresholds<14, investment_strategy{ .thresholds = { .buy = 40, .sell = 60 }, .investment = 0.5f  }>,
-            automata::RSI_thresholds<14, investment_strategy{ .thresholds = { .buy = 40, .sell = 60 }, .investment = 0.25f }>,
-            automata::RSI_thresholds<14, investment_strategy{ .thresholds = { .buy = 45, .sell = 55 }, .investment = 0.5f  }>,
-            automata::RSI_thresholds<14, investment_strategy{ .thresholds = { .buy = 45, .sell = 55 }, .investment = 0.25f }>
+            automata::RSI_of<14>::thresholds<investment_strategy{ .thresholds = { .buy = 30, .sell = 70 }, .investment = 0.5f  }>,
+            automata::RSI_of<14>::thresholds<investment_strategy{ .thresholds = { .buy = 30, .sell = 70 }, .investment = 0.25f }>,
+            automata::RSI_of<14>::thresholds<investment_strategy{ .thresholds = { .buy = 40, .sell = 60 }, .investment = 0.5f  }>,
+            automata::RSI_of<14>::thresholds<investment_strategy{ .thresholds = { .buy = 40, .sell = 60 }, .investment = 0.25f }>,
+            automata::RSI_of<14>::thresholds<investment_strategy{ .thresholds = { .buy = 45, .sell = 55 }, .investment = 0.5f  }>,
+            automata::RSI_of<14>::thresholds<investment_strategy{ .thresholds = { .buy = 45, .sell = 55 }, .investment = 0.25f }>
             // RSI
             
         >(path_ETH_august_2021, 1000.f);
