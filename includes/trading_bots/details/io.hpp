@@ -6,6 +6,7 @@
 #include <fstream>
 #include <string>
 #include <stack>
+#include <coroutine>
 
 #ifndef fwd
 # define fwd(...) static_cast<decltype(__VA_ARGS__) &&>(__VA_ARGS__)

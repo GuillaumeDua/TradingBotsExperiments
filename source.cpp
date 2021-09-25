@@ -1,12 +1,12 @@
+#include <trading_bots/business/indices.hpp>
 #include <trading_bots/business/data_types.hpp>
+
 #include <trading_bots/details/io.hpp>
 #include <trading_bots/details/tuple_view.hpp>
 
 #include <memory>
 #include <iostream>
 #include <iomanip>
-#include <fstream>
-#include <stack>
 #include <queue>
 #include <optional>
 #include <algorithm>
@@ -81,165 +81,6 @@ namespace gcl::cx {
     constexpr inline auto value_name_v = value_name<value>();
 }
 
-namespace trading_bots::input {
-
-    using record_type = trading_bots::business::data_types::record;
-    using amount_type = double;
-
-    template <typename T>
-    concept input_type = requires (T& value, const record_type & arg) {
-        value.update(arg);
-    };
-
-    enum trend_value_type {
-        up, stable, down
-    };
-
-    struct last_record {
-        void update(const record_type & input) {
-            value = input;
-        }
-        record_type value;
-    };
-    
-    template <std::size_t max_duration = 14>
-    requires (max_duration not_eq 0)
-    struct rsi {
-
-        void update(const record_type & input) {
-            cache.push_front(input);
-            if (cache.size() > max_duration)
-                cache.pop_back();
-            assert(cache.size() <= max_duration);
-        }
-        
-        using value_type = trading_bots::business::data_types::rate;
-        std::optional<value_type> value_for_duration(std::size_t duration) const {
-
-            if (duration <= 1)
-                throw std::invalid_argument{"rsi::value_for_duration : duration <= 1"};
-
-            if (std::size(cache) < duration)
-                return std::nullopt;
-
-            auto range_begin = std::next(std::crbegin(cache));
-            auto range_end = std::next(std::crbegin(cache), duration);
-            
-            const auto effective_duration = (duration - 1.0);
-            const amount_type gain_average = std::accumulate(
-                range_begin,
-                range_end,
-                0.0,
-                [prev_element_it = std::crbegin(cache)](amount_type result, const record_type & element) mutable {
-                    const amount_type variation = ((element.CloseLast / prev_element_it->CloseLast) * 100.0) - 100;
-                    ++prev_element_it;
-                    if (variation > .0) // is gain
-                        return result += variation;
-                    return result;
-                }
-            ) / effective_duration;
-            const amount_type loss_average = std::accumulate(
-                range_begin,
-                range_end,
-                0.0,
-                [prev_element_it = std::crbegin(cache)](amount_type result, const record_type & element) mutable {
-                    const amount_type variation = ((element.CloseLast / prev_element_it->CloseLast) * 100.0) - 100;
-                    ++prev_element_it;
-                    if (variation < .0) // is loss
-                        return result += std::fabs(variation);
-                    return result;
-                }
-            ) / effective_duration;
-
-            const auto result = 100.0 - (100.0 / (
-                1.0 +
-                gain_average / loss_average
-            ));
-            return result;
-        }
-
-    private:
-        std::deque<record_type> cache;
-    };
-
-    template <std::size_t max_duration = 14>
-    requires (max_duration > 1)
-    struct trend { 
-        using value_type = trend_value_type;  
-        
-        std::optional<value_type> value_for_duration(std::size_t duration, float fluctuation_threshold) const {
-
-            if (duration <= 1)
-                throw std::invalid_argument{"trend::value_for_duration : duration <= 1"};
-
-            if (std::size(cache) < duration)
-                return std::nullopt;
-
-            const auto latest_input = std::begin(cache);
-            const auto past_input = std::next(latest_input, duration);
-
-            const auto fluctuation_rate = (latest_input->CloseLast / past_input->CloseLast) - 1;
-            if (fluctuation_rate < fluctuation_threshold and fluctuation_rate > -fluctuation_threshold)
-                return value_type::stable;
-            else
-                return fluctuation_rate < .0 ? value_type::down : value_type::up;
-        }
-
-        void update(const record_type & input) {
-
-            cache.push_front(input);
-            if (cache.size() > max_duration)
-                cache.pop_back();
-            assert(cache.size() <= max_duration);
-        }
-
-    private:
-        std::deque<record_type> cache;
-    };
-    
-    // todo : MA / EMA / BOLL
-
-    // ROC => Rate of Change
-    //  Positive values => buying  pressure/upward-momentum
-    //  Negative values => selling pressure/downward-momentum
-    template <std::size_t max_duration = 14>
-    requires (max_duration > 1)
-    struct roc { 
-        using value_type = float;
-        std::optional<value_type> value_for_duration(std::size_t duration) const {
-
-            if (duration <= 1)
-                throw std::invalid_argument{"roc::value_for_duration : duration <= 1"};
-
-            if (std::size(cache) < duration)
-                return std::nullopt;
-
-            const auto latest_input = std::begin(cache);
-            const auto past_input = std::next(latest_input, duration);
-
-            return (
-                (
-                    (latest_input->CloseLast - past_input->CloseLast)
-                    / past_input->CloseLast
-                ) * 100
-            );
-
-            // wip
-            // https://www.investopedia.com/terms/p/pricerateofchange.asp
-        }
-
-        void update(const record_type & input) {
-
-            cache.push_front(input);
-            if (cache.size() > max_duration)
-                cache.pop_back();
-            assert(cache.size() <= max_duration);
-        }
-
-    private:
-        std::deque<record_type> cache;
-    };
-}
 namespace trading_bots {
 
     // todo : enforce values range -> data_type::rate
@@ -332,7 +173,7 @@ namespace trading_bots::automata {
         struct caca : public base {
 
             using components_type = std::tuple<
-                trading_bots::input::rsi<>
+                business::indices::rsi<>
             >;
 
             caca(amount_type initial_amount)
@@ -364,8 +205,8 @@ namespace trading_bots::automata {
         struct proportional_with_trends : public base {
 
             using components_type = std::tuple<
-                trading_bots::input::rsi<>,
-                trading_bots::input::trend<>
+                business::indices::rsi<>,
+                business::indices::trend<>
             >;
 
             proportional_with_trends(amount_type initial_amount)
@@ -381,7 +222,7 @@ namespace trading_bots::automata {
                 const auto trend_value = trend.value_for_duration(duration, trend_fluctuation_rate);
                 if (not rsi_value or    // rsi   : not enough records to process
                     not trend_value or  // trend : not enough records to process
-                    *(trend_value) == input::trend_value_type::stable // no observal trend
+                    *(trend_value) == business::indices::trend_value_type::stable // no observal trend
                 ) return;
 
                 std::cout
@@ -389,10 +230,10 @@ namespace trading_bots::automata {
                     << "\trsi = " << *rsi_value << '\n'
                 ;
 
-                if (*trend_value == input::trend_value_type::up and
+                if (*trend_value == business::indices::trend_value_type::up and
                     *rsi_value < 50)
                     buy_up_to(current_amount_USD * (1 - (*rsi_value / 50)));
-                if (*trend_value == input::trend_value_type::down and
+                if (*trend_value == business::indices::trend_value_type::down and
                     *rsi_value > 50)
                     sell_up_to(investement.to_USDT() * ((*rsi_value / 50) - 1));
             }
@@ -404,7 +245,7 @@ namespace trading_bots::automata {
         struct thresholds : public base {
 
             using components_type = std::tuple<
-                trading_bots::input::rsi<>
+                business::indices::rsi<>
             >;
 
             thresholds(amount_type initial_amount)
@@ -436,8 +277,8 @@ namespace trading_bots::automata {
         struct thresholds_and_trends : public base {
 
             using components_type = std::tuple<
-                trading_bots::input::rsi<>,
-                trading_bots::input::trend<>
+                business::indices::rsi<>,
+                business::indices::trend<>
             >;
 
             thresholds_and_trends(amount_type initial_amount)
@@ -453,17 +294,17 @@ namespace trading_bots::automata {
                 const auto trend_value = trend.value_for_duration(duration, trend_fluctuation);
                 if (not rsi_value or    // rsi   : not enough records to process
                     not trend_value or  // trend : not enough records to process
-                    *(trend_value) == input::trend_value_type::stable // no observal trend
+                    *(trend_value) == business::indices::trend_value_type::stable // no observal trend
                 ) return;
                 
                 std::cout
                     << gcl::cx::type_name_v<std::remove_cvref_t<decltype(*this)>> << '\n'
                     << "\trsi = " << *rsi_value << '\n'
                 ;
-                if (trend_value == input::trend_value_type::up and
+                if (trend_value == business::indices::trend_value_type::up and
                     *rsi_value < strategy.thresholds.buy)
                     buy_up_to(current_amount_USD * strategy.investment);
-                if (trend_value == input::trend_value_type::down and
+                if (trend_value == business::indices::trend_value_type::down and
                     *rsi_value > strategy.thresholds.sell)
                     sell_up_to(investement.to_USDT() * strategy.investment);
             }
@@ -502,13 +343,13 @@ void run_for_datas(const std::string & path, const float initial_amount) {
         value.process(std::move(features_requested));
     };
 
-    using record_type = trading_bots::business::data_types::record;
+    using record_type = business::data_types::record;
     auto records = details::io::csv::file<record_type>{ path }.extract_datas();
     auto features = std::tuple {
-        input::last_record{},
-        input::rsi{},
-        input::trend{},
-        input::roc{}
+        business::indices::last_record{},
+        business::indices::rsi{},
+        business::indices::trend{},
+        business::indices::roc{}
     };
     auto automatas = make_array_of_variants<automatas_types...>(initial_amount);
 
