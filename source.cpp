@@ -1,4 +1,4 @@
-
+#include <trading_bots/business/data_types.hpp>
 #include <trading_bots/details/io.hpp>
 #include <trading_bots/details/tuple_view.hpp>
 
@@ -83,7 +83,7 @@ namespace gcl::cx {
 
 namespace trading_bots::input {
 
-    using record_type = trading_bots::data_types::record;
+    using record_type = trading_bots::business::data_types::record;
     using amount_type = double;
 
     template <typename T>
@@ -113,7 +113,7 @@ namespace trading_bots::input {
             assert(cache.size() <= max_duration);
         }
         
-        using value_type = trading_bots::data_types::rate;
+        using value_type = trading_bots::business::data_types::rate;
         std::optional<value_type> value_for_duration(std::size_t duration) const {
 
             if (duration <= 1)
@@ -261,7 +261,8 @@ namespace trading_bots::automata {
         : current_amount_USD{ initial_amount }
         {}
 
-        void update(const data_types::record & last_record) {
+        using record_type = trading_bots::business::data_types::record;
+        void update(const record_type & last_record) {
             investement.update(last_record);
             if (is_bankrupt()) {
                 std::runtime_error{"business error : is_bankrupt"};
@@ -304,7 +305,7 @@ namespace trading_bots::automata {
 
     protected:
         amount_type current_amount_USD;
-        data_types::wallet investement;
+        trading_bots::business::data_types::wallet investement;
     };
 
     template <typename T>
@@ -501,7 +502,8 @@ void run_for_datas(const std::string & path, const float initial_amount) {
         value.process(std::move(features_requested));
     };
 
-    auto records = details::io::csv::file::generate_datas(path);
+    using record_type = trading_bots::business::data_types::record;
+    auto records = details::io::csv::file<record_type>{ path }.extract_datas();
     auto features = std::tuple {
         input::last_record{},
         input::rsi{},

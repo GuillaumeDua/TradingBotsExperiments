@@ -6,7 +6,7 @@
 #include <iomanip>
 #include <cassert>
 
-namespace trading_bots::data_types {
+namespace trading_bots::business::data_types {
     struct rate {
         using value_type = float;
         constexpr rate(value_type arg)
