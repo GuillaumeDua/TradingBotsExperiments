@@ -91,50 +91,10 @@ namespace trading_bots::input {
         value.update(arg);
     };
 
-    // ROC => Rate of Change
-    //  Positive values => buying  pressure/upward-momentum
-    //  Negative values => selling pressure/downward-momentum
-
     enum trend_value_type {
         up, stable, down
     };
 
-    template <std::size_t max_duration = 14>
-    requires (max_duration > 1)
-    struct trend { 
-        using value_type = trend_value_type;  
-        
-        std::optional<value_type> value_for_duration(std::size_t duration, float fluctuation_threshold) const {
-
-            if (duration <= 1)
-                throw std::invalid_argument{"trend::value_for_duration : duration <= 1"};
-
-            if (std::size(cache) < duration or
-                std::size(cache) < 2)
-                return std::nullopt;
-
-            const auto latest_input = std::begin(cache);
-            const auto past_input = std::next(latest_input, duration);
-
-            const auto fluctuation_rate = (latest_input->CloseLast / past_input->CloseLast) - 1;
-            if (fluctuation_rate < fluctuation_threshold and fluctuation_rate > -fluctuation_threshold)
-                return value_type::stable;
-            else
-                return fluctuation_rate < .0 ? value_type::down : value_type::up;
-        }
-
-        void update(const record_type & input) {
-
-            cache.push_front(input);
-            if (cache.size() > max_duration)
-                cache.pop_back();
-            assert(cache.size() <= max_duration);
-        }
-
-    private:
-        std::deque<record_type> cache;
-    };
-    
     struct last_record {
         void update(const record_type & input) {
             value = input;
@@ -196,6 +156,84 @@ namespace trading_bots::input {
                 gain_average / loss_average
             ));
             return result;
+        }
+
+    private:
+        std::deque<record_type> cache;
+    };
+
+    template <std::size_t max_duration = 14>
+    requires (max_duration > 1)
+    struct trend { 
+        using value_type = trend_value_type;  
+        
+        std::optional<value_type> value_for_duration(std::size_t duration, float fluctuation_threshold) const {
+
+            if (duration <= 1)
+                throw std::invalid_argument{"trend::value_for_duration : duration <= 1"};
+
+            if (std::size(cache) < duration)
+                return std::nullopt;
+
+            const auto latest_input = std::begin(cache);
+            const auto past_input = std::next(latest_input, duration);
+
+            const auto fluctuation_rate = (latest_input->CloseLast / past_input->CloseLast) - 1;
+            if (fluctuation_rate < fluctuation_threshold and fluctuation_rate > -fluctuation_threshold)
+                return value_type::stable;
+            else
+                return fluctuation_rate < .0 ? value_type::down : value_type::up;
+        }
+
+        void update(const record_type & input) {
+
+            cache.push_front(input);
+            if (cache.size() > max_duration)
+                cache.pop_back();
+            assert(cache.size() <= max_duration);
+        }
+
+    private:
+        std::deque<record_type> cache;
+    };
+    
+    // todo : MA / EMA / BOLL
+
+    // ROC => Rate of Change
+    //  Positive values => buying  pressure/upward-momentum
+    //  Negative values => selling pressure/downward-momentum
+    template <std::size_t max_duration = 14>
+    requires (max_duration > 1)
+    struct roc { 
+        using value_type = float;
+        std::optional<value_type> value_for_duration(std::size_t duration) const {
+
+            if (duration <= 1)
+                throw std::invalid_argument{"roc::value_for_duration : duration <= 1"};
+
+            if (std::size(cache) < duration)
+                return std::nullopt;
+
+            const auto latest_input = std::begin(cache);
+            const auto past_input = std::next(latest_input, duration);
+
+            return (
+                (
+                    (latest_input->CloseLast - past_input->CloseLast)
+                    / past_input->CloseLast
+                ) * 100
+            );
+
+            // wip
+            // https://www.investopedia.com/terms/p/pricerateofchange.asp
+        }
+
+        void update(const record_type & input) {
+
+            cache.push_front(input);
+            if (cache.size() > max_duration)
+                cache.pop_back();
+            assert(cache.size() <= max_duration);
         }
 
     private:
@@ -467,7 +505,8 @@ void run_for_datas(const std::string & path, const float initial_amount) {
     auto features = std::tuple {
         input::last_record{},
         input::rsi{},
-        input::trend{}
+        input::trend{},
+        input::roc{}
     };
     auto automatas = make_array_of_variants<automatas_types...>(initial_amount);
 
@@ -499,7 +538,7 @@ void run_for_datas(const std::string & path, const float initial_amount) {
             [initial_amount](auto & value) {
                 auto win_or_loss_rate = ((value.total_capital() / initial_amount) * 100) - 100;
                 std::cout
-                    << '\t' << std::setw(110) << std::left
+                    << '\t' << std::setw(130) << std::left
                     << gcl::cx::type_name_v<std::remove_cvref_t<decltype(value)>>
                     << " : " << std::setw(10) << value.total_capital()
                     << " = " << std::setw(10) << (value.total_capital() - initial_amount)
